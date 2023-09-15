@@ -7,14 +7,14 @@ Simple key-value store with file persistence and optional async write queue.
 
 * [Store](#Store)
     * [new Store([file])](#new_Store_new)
-    * [.get(key)](#Store+get) ΓçÆ <code>\*</code>
+    * [.get(key)](#Store+get) <code>\*</code>
     * [.set(key, value)](#Store+set)
     * [.setSync(key, value)](#Store+setSync)
     * [.remove(key)](#Store+remove)
     * [.removeSync(key)](#Store+removeSync)
     * [.changeFeed(listener)](#Store+changeFeed)
-    * [.removeChangeFeedListener(listener)](#Store+removeChangeFeedListener) ΓçÆ <code>boolean</code>
-    * [.getAll()](#Store+getAll) ΓçÆ <code>Object</code>
+    * [.removeChangeFeedListener(listener)](#Store+removeChangeFeedListener) <code>boolean</code>
+    * [.getAll()](#Store+getAll) <code>Object</code>
 
 <a name="new_Store_new"></a>
 
