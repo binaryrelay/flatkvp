@@ -28,7 +28,7 @@ Initializes the store.
 
 <a name="Store+get"></a>
 
-### store.get(key) ΓçÆ <code>\*</code>
+### store.get(key) <code>\*</code>
 Gets the value for the given key.
 
 **Kind**: instance method of [<code>Store</code>](#Store)  
@@ -97,7 +97,7 @@ Subscribes to changes in the store.
 
 <a name="Store+removeChangeFeedListener"></a>
 
-### store.removeChangeFeedListener(listener) ΓçÆ <code>boolean</code>
+### store.removeChangeFeedListener(listener) <code>boolean</code>
 Unsubscribes from changes in the store.
 
 **Kind**: instance method of [<code>Store</code>](#Store)  
