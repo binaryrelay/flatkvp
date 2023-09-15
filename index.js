@@ -93,17 +93,17 @@ class Store {
         }
     }
 
-    #acquireLock(retries = 10, interval = 50) {
+    async #acquireLock(retries = 10, interval = 50) {
         let attempt = 0;
         while (attempt < retries) {
             if (this.#hasLock()) {
-                fse.writeFileSync(this.#LOCK_FILE, process.pid.toString());
+                await fse.writeFile(this.#LOCK_FILE, process.pid.toString());
                 this.#MERGE_REQUIRED = true;
                 return;
             } else {
                 attempt++;
                 if (attempt < retries) {
-                    this.#sleep(interval * attempt);
+                    await this.#sleep(interval * attempt);
                 }
             }
         }
