@@ -109,7 +109,7 @@ Unsubscribes from changes in the store.
 
 <a name="Store+getAll"></a>
 
-### store.getAll() ΓçÆ <code>Object</code>
+### store.getAll() <code>Object</code>
 Gets all key-value pairs from the store.
 
 **Kind**: instance method of [<code>Store</code>](#Store)  
