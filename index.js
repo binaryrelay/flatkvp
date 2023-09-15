@@ -98,7 +98,9 @@ class Store {
         while (attempt < retries) {
             if (this.#hasLock()) {
                 await fse.writeFile(this.#LOCK_FILE, process.pid.toString());
-                this.#MERGE_REQUIRED = true;
+                if (attempt > 0) {
+                    this.#MERGE_REQUIRED = true;
+                }
                 return;
             } else {
                 attempt++;
