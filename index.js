@@ -26,6 +26,11 @@ class Store {
 
     constructor(options) {
         this.#FILE_PATH = options?.filePath ?? this.#FILE_PATH;
+        //recreate the paths
+        this.#TEMP_PATH = `${this.#FILE_PATH}.temp`;
+        this.#BACKUP_PATH = `${this.#FILE_PATH}.backup`;
+        this.#LOCK_FILE = `${this.#FILE_PATH}.lock`;
+        
         this.#MULTIPROCESS = options?.multiprocess ?? this.#MULTIPROCESS;
 
         if (Store.#INSTANCES[this.#FILE_PATH]) {
