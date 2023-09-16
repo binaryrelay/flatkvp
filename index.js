@@ -175,15 +175,17 @@ class Store {
     }
 
     #writeToFile(data) {
-        if(this.#MULTIPROCESS) this.#acquireLock();
+        if(this.#MULTIPROCESS) {
+            this.#acquireLock();
 
-        if (this.#MERGE_REQUIRED) {
-            this.#mergeData();
+            if (this.#MERGE_REQUIRED) {
+                this.#mergeData();
+            }  
         }
-        
+
         fse.writeJsonSync(this.#TEMP_PATH, data);
         fse.moveSync(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
-        
+
         if(this.#MULTIPROCESS) this.#releaseLock();
 
     }
@@ -195,10 +197,10 @@ class Store {
                 this.#mergeData();
             }
         }
-        
+
         await fse.writeJson(this.#TEMP_PATH, this.#STORE);
         await fse.move(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
-        
+
         if(this.#MULTIPROCESS) this.#releaseLock();
     }
 
