@@ -1,6 +1,6 @@
 ### NOTES: 
-   This is still alpha stage.
-   The Sync methods, if using the multiprocess flag, can hold up the thread for many seconds while trying to acquire a lock.
+   - This is still alpha stage.
+   - The Sync methods, if using the multiprocess flag, can hold up the thread for many seconds while trying to acquire a lock.
 <a name="Store"></a>
 
 ## Store
