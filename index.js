@@ -1,4 +1,5 @@
 import fse from 'fs-extra';
+import fs from 'fs';
 
 /**
  * Simple key-value store with file persistence and optional async write queue.
@@ -14,14 +15,18 @@ class Store {
     #QUEUE = [];
     #WRITE_LOCK = false;
     static #INSTANCES = {};
+    #WATCHER;
+    //this is very experimental still
+    #MULTIPROCESS = false;
 
     /**
      * Initializes the store.
-     * @param {string} [file] - Path to JSON file for storage.
+     * @param {object} [options] - Path to JSON file for storage.
      */
 
-    constructor(file) {
-        this.#FILE_PATH = file ?? this.#FILE_PATH;
+    constructor(options) {
+        this.#FILE_PATH = options?.filePath ?? this.#FILE_PATH;
+        this.#MULTIPROCESS = options?.multiprocess ?? this.#MULTIPROCESS;
 
         if (Store.#INSTANCES[this.#FILE_PATH]) {
             return Store.#INSTANCES[this.#FILE_PATH];  // return the existing instance
@@ -53,16 +58,52 @@ class Store {
             this.#backupFile();
         }, 3600 * 1000); // 1 hour
 
-        process.on('exit', this.#backupFile.bind(this));
-        process.on('beforeExit', this.#backupFile.bind(this));
+        if (this.#MULTIPROCESS) {
+            this.#startFileWatcher();
+        }
+        process.on('exit', this.#onExit);
+        process.on('beforeExit', this.#onExit);
         process.on('SIGINT', () => {
-            this.#backupFile();
+            this.#onExit();
             process.exit(2);
         });
         process.on('SIGTERM', () => {
-            this.#backupFile();
+            this.#onExit();
             process.exit(2);
         });
+    }
+
+    #onExit() {
+        delete Store.#INSTANCES[this.#FILE_PATH];
+        if (this.#WATCHER) {
+            this.#WATCHER.close();
+        }
+        this.#backupFile();
+
+    }
+
+    #startFileWatcher() {
+        this.#WATCHER = fs.watch(this.#FILE_PATH, (eventType, filename) => {
+            if (eventType === 'change') {
+                this.#loadFromFile();
+            }
+        });
+    }
+
+    async #loadFromFile() {
+        try {
+            const newStore = await fse.readJson(this.#FILE_PATH);
+            for (const [key, entry] of Object.entries(newStore)) {
+                const oldValue = this.get(key);
+                this.#STORE[key] = entry;
+
+                if (oldValue !== entry.value) {
+                    this.#_emitChange(key, entry.value, oldValue);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to read changed store file.', e);
+        }
     }
 
     #backupFile() {
@@ -122,8 +163,8 @@ class Store {
     }
 
 
-   #mergeData () {
-        const currentData =  fse.readJsonSync(this.#FILE_PATH);
+    #mergeData() {
+        const currentData = fse.readJsonSync(this.#FILE_PATH);
         for (const [key, entry] of Object.entries(currentData)) {
             // Only merge if the in-memory store has a newer timestamp or doesn't have the key
             if (!this.#STORE[key] || entry.timestamp > this.#STORE[key].timestamp) {
@@ -134,25 +175,31 @@ class Store {
     }
 
     #writeToFile(data) {
-        this.#acquireLock();
+        if(this.#MULTIPROCESS) this.#acquireLock();
 
-        if(this.#MERGE_REQUIRED) {
+        if (this.#MERGE_REQUIRED) {
             this.#mergeData();
         }
+        
         fse.writeJsonSync(this.#TEMP_PATH, data);
         fse.moveSync(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
-        this.#releaseLock();
+        
+        if(this.#MULTIPROCESS) this.#releaseLock();
 
     }
 
     async #writeToFileAsync() {
-        this.#acquireLock();
-        if(this.#MERGE_REQUIRED) {
-            this.#mergeData();
+        if(this.#MULTIPROCESS) {
+            this.#acquireLock();
+            if (this.#MERGE_REQUIRED) {
+                this.#mergeData();
+            }
         }
+        
         await fse.writeJson(this.#TEMP_PATH, this.#STORE);
         await fse.move(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
-        this.#releaseLock();
+        
+        if(this.#MULTIPROCESS) this.#releaseLock();
     }
 
     #_emitChange(key, newValue, oldValue) {
