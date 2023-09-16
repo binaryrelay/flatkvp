@@ -48,7 +48,7 @@ class Store {
                     console.error('Failed to create a timestamped backup.');
                 }
 
-                this.#writeToFile({});
+                this.#writeToFileSync({});
             }
         }
 
@@ -83,9 +83,9 @@ class Store {
     }
 
     #startFileWatcher() {
-        this.#WATCHER = fs.watch(this.#FILE_PATH, (eventType, filename) => {
+        this.#WATCHER = fs.watch(this.#FILE_PATH, async (eventType, filename) => {
             if (eventType === 'change') {
-                this.#loadFromFile();
+                await this.#loadFromFile();
             }
         });
     }
@@ -114,54 +114,85 @@ class Store {
         }
     }
 
-    #hasLock() {
+    async #hasLockAsync() {
+        try {
+            const existingPid = await fse.readFile(this.#LOCK_FILE, 'utf-8');
+            process.kill(existingPid, 0); // Check if process is running
+            return false; // pid has lock
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                return true; // Lock file doesn't exist
+            }
+            if (error.code === 'ESRCH') {
+                return true; // process is not running, lock is stale
+            }
+            throw error;
+        }
+    }
+
+    async #acquireLockAsync(retries = 10, interval = 50) {
+        if (retries <= 0) {
+            throw new Error('Unable to acquire lock after multiple attempts. Another process is currently writing.');
+        }
+
+        if (await this.#hasLockAsync()) {
+            await fse.writeFile(this.#LOCK_FILE, process.pid.toString());
+            if (retries < 10) {
+                this.#MERGE_REQUIRED = true;
+            }
+            return;
+        }
+
+        setTimeout(() => this.#acquireLockAsync(retries - 1, interval + 50), interval);
+    }
+
+    #hasLockSync() {
         try {
             const existingPid = fse.readFileSync(this.#LOCK_FILE, 'utf-8');
-            try {
-                process.kill(existingPid, 0);
-                return false;
-            } catch (error) {
-                if (error.code === 'ESRCH') {
-                    return true;
-                }
-                throw error;
-            }
-        } catch (err) {
-            if (err.code === 'ENOENT') {
+            process.kill(existingPid, 0);
+            return false;
+        } catch (error) {
+            if (error.code === 'ENOENT') {
                 return true;
             }
-            throw err;
-        }
-    }
-
-    async #acquireLock(retries = 10, interval = 50) {
-        let attempt = 0;
-        while (attempt < retries) {
-            if (this.#hasLock()) {
-                await fse.writeFile(this.#LOCK_FILE, process.pid.toString());
-                if (attempt > 0) {
-                    this.#MERGE_REQUIRED = true;
-                }
-                return;
-            } else {
-                attempt++;
-                if (attempt < retries) {
-                    await this.#sleep(interval * attempt);
-                }
+            if (error.code === 'ESRCH') {
+                return true;
             }
+            throw error;
         }
-        throw new Error('Unable to acquire lock after multiple attempts. Another process is currently writing.');
     }
 
-    #sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    #acquireLockSync(retries = 20, interval = 10) {
+        if (retries <= 0) {
+            throw new Error('Unable to acquire lock after multiple attempts. Another process is currently writing.');
+        }
+
+        if (this.#hasLockSync()) {
+            fse.writeFileSync(this.#LOCK_FILE, process.pid.toString());
+            if (retries < 10) {
+                this.#MERGE_REQUIRED = true;
+            }
+            return;
+        }
+
+        const sleepSync = (ms) => {
+            const end = Date.now() + ms;
+            while (Date.now() < end) {
+            }
+        };
+
+        sleepSync(interval);
+        return this.#acquireLockSync(retries - 1, interval + 10);
     }
 
 
-    #releaseLock() {
+    async #releaseLockAsync() {
+        await fse.remove(this.#LOCK_FILE);
+    }
+
+    #releaseLockSync() {
         fse.removeSync(this.#LOCK_FILE);
     }
-
 
     #mergeData() {
         const currentData = fse.readJsonSync(this.#FILE_PATH);
@@ -174,25 +205,25 @@ class Store {
         this.#MERGE_REQUIRED = false;
     }
 
-    #writeToFile(data) {
-        if(this.#MULTIPROCESS) {
-            this.#acquireLock();
+    #writeToFileSync(data) {
+        if (this.#MULTIPROCESS) {
+            this.#acquireLockSync();
 
             if (this.#MERGE_REQUIRED) {
                 this.#mergeData();
-            }  
+            }
         }
 
         fse.writeJsonSync(this.#TEMP_PATH, data);
         fse.moveSync(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
 
-        if(this.#MULTIPROCESS) this.#releaseLock();
+        if (this.#MULTIPROCESS) this.#releaseLockSync();
 
     }
 
     async #writeToFileAsync() {
-        if(this.#MULTIPROCESS) {
-            this.#acquireLock();
+        if (this.#MULTIPROCESS) {
+            await this.#acquireLockAsync();
             if (this.#MERGE_REQUIRED) {
                 this.#mergeData();
             }
@@ -201,7 +232,7 @@ class Store {
         await fse.writeJson(this.#TEMP_PATH, this.#STORE);
         await fse.move(this.#TEMP_PATH, this.#FILE_PATH, {overwrite: true});
 
-        if(this.#MULTIPROCESS) this.#releaseLock();
+        if (this.#MULTIPROCESS) await this.#releaseLockAsync();
     }
 
     #_emitChange(key, newValue, oldValue) {
@@ -240,18 +271,20 @@ class Store {
     }
 
     /**
-     * Gets the value for the given key.
-     * @param {string} key
-     * @returns {*} Value for the given key.
+     * Retrieves the value associated with the provided key.
+     * @param {string} key - The key to search for.
+     * @returns {*} The value associated with the key, or undefined if the key doesn't exist.
      */
+
     get(key) {
         return this.#STORE[key]?.value;
     }
 
     /**
-     * Asynchronously sets the value for the given key.
-     * @param {string} key
-     * @param {*} value - Must be a primitive.
+     * Asynchronously sets the value for a given key.
+     * @param {string} key - The key to set.
+     * @param {*} value - The value to set. Must be a primitive type (string, number, or boolean).
+     * @throws {Error} If the value is not a primitive type.
      */
     set(key, value) {
         if (typeof value === 'object' || Array.isArray(value)) {
@@ -264,9 +297,10 @@ class Store {
     }
 
     /**
-     * Synchronously sets the value for the given key.
-     * @param {string} key
-     * @param {*} value - Must be a primitive.
+     * Synchronously sets the value for a given key.
+     * @param {string} key - The key to set.
+     * @param {*} value - The value to set. Must be a primitive type (string, number, or boolean).
+     * @throws {Error} If the value is not a primitive type.
      */
     setSync(key, value) {
         if (typeof value === 'object' || Array.isArray(value)) {
@@ -275,13 +309,14 @@ class Store {
 
         const oldValue = this.get(key);
         this.#STORE[key] = {value, timestamp: Date.now()};
-        this.#writeToFile(this.#STORE);
+        this.#writeToFileSync(this.#STORE);
         this.#_emitChange(key, value, oldValue);
     }
 
     /**
-     * Asynchronously removes the value for the given key.
-     * @param {string} key
+     * Asynchronously removes a key and its associated value from the store.
+     * @param {string} key - The key to remove.
+     * @throws {Error} If the key doesn't exist in the store.
      */
     remove(key) {
         if (!this.#STORE.hasOwnProperty(key)) {
@@ -293,37 +328,41 @@ class Store {
     }
 
     /**
-     * Synchronously removes the value for the given key.
-     * @param {string} key
+     * Synchronously removes a key and its associated value from the store.
+     * @param {string} key - The key to remove.
+     * @throws {Error} If the key doesn't exist in the store.
      */
-
     removeSync(key) {
         if (!this.#STORE.hasOwnProperty(key)) {
             throw new Error('key does not exist');
         }
         const oldValue = this.#STORE[key];
         delete this.#STORE[key];
-        this.#writeToFile(this.#STORE);
+        this.#writeToFileSync(this.#STORE);
         this.#_emitChange(key, undefined, oldValue);
     }
 
+    /**
+     * Clears all key-value pairs from the store.
+     */
     clear() {
         this.#STORE = {};
-        this.#writeToFile({});
+        this.#writeToFileSync({});
     }
 
     /**
-     * Subscribes to changes in the store.
-     * @param {Function} listener - Function to call on change.
+     * Subscribes a listener function to changes in the store.
+     * The listener is called whenever a key's value changes.
+     * @param {Function} listener - The function to call when a change occurs.
      */
     changeFeed(listener) {
         this.#LISTENERS.push(listener);
     }
 
     /**
-     * Unsubscribes from changes in the store.
-     * @param {Function} listener - Listener to remove.
-     * @returns {boolean} True if listener was removed, false otherwise.
+     * Unsubscribes a listener from the change feed.
+     * @param {Function} listener - The listener to unsubscribe.
+     * @returns {boolean} Returns true if the listener was found and removed, otherwise false.
      */
     removeChangeFeedListener(listener) {
         const index = this.#LISTENERS.indexOf(listener);
@@ -336,10 +375,9 @@ class Store {
 
 
     /**
-     * Gets all key-value pairs from the store.
-     * @returns {Object} All key-value pairs.
+     * Retrieves all key-value pairs currently in the store.
+     * @returns {Object} An object containing all key-value pairs.
      */
-
     getAll() {
         const result = {};
         for (const [key, entry] of Object.entries(this.#STORE)) {
