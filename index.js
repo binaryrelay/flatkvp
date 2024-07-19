@@ -67,8 +67,8 @@ class Store {
         if (this.#MULTIPROCESS) {
             this.#startFileWatcher();
         }
-        process.on('exit', this.#onExit);
-        process.on('beforeExit', this.#onExit);
+        process.on('exit', () => this.#onExit());
+        process.on('beforeExit', () => this.#onExit());
         process.on('SIGINT', () => {
             this.#onExit();
             process.exit(2);
